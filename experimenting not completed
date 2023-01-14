@@ -1,0 +1,59 @@
+
+import requests
+import re
+from concurrent.futures import ThreadPoolExecutor
+import random
+import time
+from stem import Signal
+from stem.control import Controller
+
+# set the target URL
+url = "http://target.com"
+
+# Use Tor as a proxy
+session = requests.session()
+session.proxies = {'http':  'socks5://127.0.0.1:9050',
+                   'https': 'socks5://127.0.0.1:9050'}
+
+# Fetch Historical HTML content from Wayback Machine
+timestamp = "20200101000000" # timestamp in the format YYYYMMDDHHMMSS
+wayback_url = f"http://archive.org/wayback/available?url={url}&timestamp={timestamp}"
+response = session.get(wayback_url)
+data = response.json()
+if "archived_snapshots" in data:
+    if "closest" in data["archived_snapshots"]:
+        if "url" in data["archived_snapshots"]["closest"]:
+            wayback_url = data["archived_snapshots"]["closest"]["url"]
+            # Use a random User-Agent
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0;Win64) AppleWebkit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.66 Safari/537.36'}
+            response = session.get(wayback_url, headers=headers)
+            html_content = response.text
+            # Use ThreadPoolExecutor to extract domains
+            with ThreadPoolExecutor() as executor:
+                result = executor.submit(get_domains, html_content)
+                domains = result.result()
+                if domains:
+                    filtered_domains = filter_domains(domains)
+                    with open("external_domains.txt", "w") as file:
+                        for domain in filtered_domains:
+                            file.write(domain + "\n")
+                    print(f"{len(filtered_domains)} external domains saved to external_domains.txt")
+                else:
+                    print("An error occured or no external domains found.")
+    else:
+        print("No snapshot available for the specified timestamp.")
+else:
+    print("Error fetching snapshot.")
+    
+def filter_domains(domains):
+    filtered_domains = []
+    tlds =  [".com", ".org"] subdomains = ["www"] for domain in domains: if any(tld in domain for tld in tlds) and any(sub in domain for sub in subdomains): filtered_domains.append(domain) return filtered_domains
+
+def get_domains(html_content): 
+domains = re.findall(r'(?:https?://)?(?:a-zA-Z0-9?.)+(?:[a-zA-Z]{2,6})', html_content) 
+return domains
+#renew tor ip.
+with Controller.from_port(port = 9051) as controller: controller.authenticate() controller.signal(Signal.NEWNYM) time.sleep(controller.get_newnym_wait())
+
+
+
